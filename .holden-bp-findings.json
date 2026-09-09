@@ -1,0 +1,57 @@
+{
+  "scan_date": "2026-09-08T00:00:00Z",
+  "scan_path": ".",
+  "findings": [
+    {
+      "id": "HOLDEN_BP_001",
+      "status": "fixed",
+      "first_seen": "2026-09-08",
+      "last_seen": "2026-09-08",
+      "principle": "cost",
+      "severity": "MEDIUM",
+      "confidence": "medium",
+      "title": "Data access audit logs enabled for allServices across the whole folder with no way to narrow scope",
+      "file": "google_folder_iam_audit_config.all_services.tf",
+      "line": 9,
+      "resource": "google_folder_iam_audit_config.all_services",
+      "explanation": "DATA_READ and DATA_WRITE are enabled for service = \"allServices\" at folder scope, so every project ever created under this folder emits a data-access log entry for every read and write across every GCP service. ADMIN_READ is low volume, but DATA_READ on high-traffic services (GCS object reads, BigQuery queries, Pub/Sub pulls, Spanner/Datastore reads) is the single largest Cloud Logging ingestion cost driver on most GCP estates, and it is billed per GiB above the free allotment. The module hardcodes this with no input variable, so a consumer who wants ADMIN_READ-only, or DATA_READ on a named subset of services, has to fork the module.",
+      "remediation": "Parameterise the enabled log types (and optionally the service) so consumers can opt into the expensive ones. Do NOT use exempted_members to control volume: that trips holden HLD_GCP_256 (HIGH, 'Cloud Audit Logging must not exempt any members'). Control cost with logging sink exclusions or a narrower service list instead, keeping the default at the current secure-by-default setting.",
+      "fixable": true,
+      "fix": "variable \"audit_log_types\" {\n  type        = list(string)\n  description = \"Audit log types enabled on the folder for var.audit_service\"\n  default     = [\"ADMIN_READ\", \"DATA_READ\", \"DATA_WRITE\"]\n\n  validation {\n    condition     = length(setsubtract(var.audit_log_types, [\"ADMIN_READ\", \"DATA_READ\", \"DATA_WRITE\"])) == 0\n    error_message = \"var.audit_log_types must only contain ADMIN_READ, DATA_READ or DATA_WRITE\"\n  }\n\n  validation {\n    condition     = contains(var.audit_log_types, \"ADMIN_READ\")\n    error_message = \"var.audit_log_types must include ADMIN_READ\"\n  }\n}\n\nresource \"google_folder_iam_audit_config\" \"all_services\" {\n  folder  = google_folder.main.name\n  service = \"allServices\"\n\n  dynamic \"audit_log_config\" {\n    for_each = toset(var.audit_log_types)\n\n    content {\n      log_type = audit_log_config.value\n    }\n  }\n}"
+    },
+    {
+      "id": "HOLDEN_BP_002",
+      "status": "fixed",
+      "first_seen": "2026-09-08",
+      "last_seen": "2026-09-08",
+      "principle": "maintainability",
+      "severity": "LOW",
+      "confidence": "high",
+      "title": "Shielded-VM organization policy is hardcoded with no toggle",
+      "file": "google_org_policy_policy.folder_require_shielded_vm.tf",
+      "line": 1,
+      "resource": "google_org_policy_policy.require_shielded_vm",
+      "explanation": "The module unconditionally creates compute.requireShieldedVm with enforce = TRUE. Any consumer that needs a folder for workloads that cannot run Shielded VM (some marketplace images, certain sole-tenant or GPU/nested-virt configurations) has no way to opt out short of forking the module or importing and manually overriding the policy. A hardcoded constraint inside a general-purpose folder module also makes the module's blast radius unobvious from its call site: the example calls it with four arguments and silently gets an org policy.",
+      "remediation": "Gate the resource on a variable defaulting to true, so the secure default is unchanged but the module stays reusable.",
+      "fixable": true,
+      "fix": "variable \"require_shielded_vm\" {\n  type        = bool\n  description = \"Whether to enforce the compute.requireShieldedVm organization policy on the folder\"\n  default     = true\n}\n\nresource \"google_org_policy_policy\" \"require_shielded_vm\" {\n  count = var.require_shielded_vm ? 1 : 0\n\n  name   = \"${google_folder.main.name}/policies/compute.requireShieldedVm\"\n  parent = google_folder.main.name\n\n  spec {\n    inherit_from_parent = true\n\n    rules {\n      enforce = \"TRUE\"\n    }\n  }\n}"
+    },
+    {
+      "id": "HOLDEN_BP_003",
+      "status": "open",
+      "first_seen": "2026-09-08",
+      "last_seen": "2026-09-08",
+      "principle": "maintainability",
+      "severity": "INFO",
+      "confidence": "medium",
+      "title": "IAM grants are fixed to one role each; adding a second role requires editing the module",
+      "file": "google_folder_iam_binding.viewer.tf",
+      "line": 1,
+      "resource": "google_folder_iam_binding.viewer, google_folder_iam_member.security_reviewer",
+      "explanation": "Both IAM resources hardcode a single role (roles/resourcemanager.folderViewer, roles/iam.securityReviewer). A folder module is typically the place where several role grants are made together (browser, folder admin, logging viewer). As written, each additional role needs a new resource file and a new variable, and the two resources use different, unexplained authority models (authoritative binding vs additive member) driven only by which role it is.",
+      "remediation": "Consider a map(list(string)) of role -> members driven with for_each for the additive grants, keeping the authoritative binding explicit and separate. Note the README already documents the authoritative/additive split, so this is a shape improvement rather than a correctness gap.",
+      "fixable": false
+    }
+  ],
+  "suggested_policies": []
+}

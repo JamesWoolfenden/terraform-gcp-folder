@@ -1,0 +1,104 @@
+{
+  "scan_date": "2026-09-08T00:00:00Z",
+  "scan_path": ".",
+  "findings": [
+    {
+      "id": "HOLDEN_AI_001",
+      "status": "fixed",
+      "first_seen": "2026-09-08",
+      "last_seen": "2026-09-08",
+      "suppression_reason": null,
+      "principle": "identity-and-access",
+      "severity": "LOW",
+      "confidence": "high",
+      "title": "var.security_principal is named and documented as a group but its validation permits an individual user",
+      "file": "variables.tf",
+      "line": 46,
+      "resource": "variable.security_principal",
+      "related_resources": [
+        "google_folder_iam_member.security_reviewer"
+      ],
+      "explanation": "The variable is called security_group, its description says 'Principal granted roles/iam.securityReviewer', and the README example passes group:security@example.com - but the validation regex is ^(group|user|serviceAccount): so user:alice@example.com passes just as happily. roles/iam.securityReviewer is a folder-wide read of every IAM policy and org policy underneath; binding that to a named individual rather than a group means the grant survives that person changing teams or leaving, and there is no group membership audit trail. holden left HLD_GCP_273 Unknown here because var.security_principal is not statically resolvable; with the variable definition in view the gap is decidable.",
+      "remediation": "Resolved by renaming var.security_principal to var.security_principal and restricting the regex to ^(group|serviceAccount): \u2014 user: principals are no longer accepted. Breaking input rename; README carries a migration note.",
+      "supersedes": "HLD_GCP_273",
+      "fixable": true,
+      "fix": "variable \"security_principal\" {\n  type        = string\n  description = \"Group or service account granted roles/iam.securityReviewer on the folder\"\n\n  validation {\n    condition     = can(regex(\"^(group|serviceAccount):\", var.security_principal))\n    error_message = \"var.security_principal must be a group or service account\"\n  }\n}"
+    },
+    {
+      "id": "HOLDEN_AI_002",
+      "status": "fixed",
+      "first_seen": "2026-09-08",
+      "last_seen": "2026-09-08",
+      "suppression_reason": null,
+      "principle": "identity-and-access",
+      "severity": "MEDIUM",
+      "confidence": "high",
+      "title": "The stricter principal validation guards the weaker role: var.security_principal has no default-service-account check but var.folder_viewers does",
+      "file": "variables.tf",
+      "line": 41,
+      "resource": "variable.security_principal",
+      "related_resources": [
+        "variable.folder_viewers",
+        "google_folder_iam_member.security_reviewer",
+        "google_folder_iam_binding.viewer"
+      ],
+      "explanation": "var.folder_viewers carries three validations, including one rejecting the default Compute and App Engine service accounts (compute@developer / appspot). var.security_principal carries only two and has no equivalent guard, so serviceAccount:123456-compute@developer.gserviceaccount.com is an accepted value. That is the wrong way round: folder_viewers grants roles/resourcemanager.folderViewer (metadata read) while security_group grants roles/iam.securityReviewer, which reads every IAM policy, org policy and service-account key listing in the folder. The default Compute SA is attached to every GCE instance in a project by default, so granting it securityReviewer hands folder-wide IAM reconnaissance to anything that can reach an instance's metadata server. This is the outlier-in-a-consistent-set pattern; holden reported HLD_GCP_210 as Unknown on both resources because neither variable resolves statically.",
+      "remediation": "Add the same default-service-account rejection to var.security_principal that var.folder_viewers already has.",
+      "supersedes": "HLD_GCP_210",
+      "fixable": true,
+      "fix": "  validation {\n    condition     = !can(regex(\"(compute@developer|appspot)[.]gserviceaccount[.]com$\", var.security_group))\n    error_message = \"var.security_group must not be a default Compute or App Engine service account\"\n  }"
+    },
+    {
+      "id": "HOLDEN_AI_003",
+      "status": "fixed",
+      "first_seen": "2026-09-08",
+      "last_seen": "2026-09-08",
+      "suppression_reason": null,
+      "principle": "identity-and-access",
+      "severity": "LOW",
+      "confidence": "medium",
+      "title": "Neither principal variable rejects personal Gmail accounts",
+      "file": "variables.tf",
+      "line": 41,
+      "resource": "variable.security_principal",
+      "related_resources": [
+        "variable.folder_viewers"
+      ],
+      "explanation": "Both variables already validate defensively against allUsers and allAuthenticatedUsers, so the module has clearly taken the position that it should reject unsafe principals at plan time rather than trust the caller. Personal Gmail addresses are the gap in that position: user:someone@gmail.com satisfies every validation on both variables. A consumer-domain account sits outside the organisation's Cloud Identity, so it cannot be suspended by the org's offboarding process and is not covered by org-level 2SV or session-length policy. holden reported HLD_GCP_272 as Unknown for exactly this reason. Rated medium confidence because many orgs additionally block this with a domain-restricted-sharing org policy, in which case the plan-time check is defence in depth rather than the only control.",
+      "remediation": "Add a gmail.com/googlemail.com rejection to both variables, matching the style of the existing allUsers checks.",
+      "supersedes": "HLD_GCP_272",
+      "fixable": true,
+      "fix": "  validation {\n    condition     = !can(regex(\"@(gmail|googlemail)[.]com$\", var.security_group))\n    error_message = \"var.security_group must not be a personal Gmail account\"\n  }"
+    },
+    {
+      "id": "HOLDEN_AI_004",
+      "status": "fixed",
+      "first_seen": "2026-09-08",
+      "last_seen": "2026-09-08",
+      "suppression_reason": null,
+      "principle": "logging-and-monitoring",
+      "severity": "LOW",
+      "confidence": "high",
+      "title": "New cost/reuse toggles let a consumer disable data-access audit logging and the shielded-VM policy with no deterministic rule firing",
+      "file": "variables.tf",
+      "line": 62,
+      "resource": "variable.audit_log_types",
+      "related_resources": [
+        "variable.require_shielded_vm",
+        "google_folder_iam_audit_config.all_services",
+        "google_org_policy_policy.require_shielded_vm"
+      ],
+      "explanation": "The best-practices pass introduced var.audit_log_types and var.require_shielded_vm. Both default to the secure setting, so scanning this module root always evaluates the safe path and every holden check passes - but a consumer can pass audit_log_types = [\"ADMIN_READ\"] or require_shielded_vm = false and silently turn off DATA_WRITE audit logging (the record of who changed what) and the shielded-VM enforcement. This is the count = 0 / feature-flag blind spot: the resource is defined so rules pass, but what actually deploys depends on a value no scan of this repo will ever see. The audit half is the more serious of the two, because losing DATA_WRITE removes the tamper-evidence trail rather than a preventive control.",
+      "remediation": "Split the cheap-and-essential log types from the expensive one: require ADMIN_READ and DATA_WRITE in the validation and leave only DATA_READ optional. That keeps the entire cost saving (DATA_READ is the high-volume type) while making the audit floor non-negotiable. Leave require_shielded_vm as a genuine toggle but document in the README that setting it false removes a security control.",
+      "fixable": true,
+      "fix": "  validation {\n    condition     = alltrue([for t in [\"ADMIN_READ\", \"DATA_WRITE\"] : contains(var.audit_log_types, t)])\n    error_message = \"var.audit_log_types must include ADMIN_READ and DATA_WRITE; only DATA_READ is optional\"\n  }"
+    }
+  ],
+  "suggested_policies": [
+    {
+      "rationale": "google_*_iam_audit_config has exactly one holden policy today (HLD_GCP_256, exempted_members). Nothing checks which log types are actually enabled, so an audit config that declares only ADMIN_READ passes every check while emitting no record of data mutations. DATA_WRITE is the tamper-evidence log type and is low volume compared to DATA_READ, so requiring it does not create the cost objection that requiring DATA_READ would. This is a single resource type, a fixed attribute path, and an unambiguous condition, so it belongs in the deterministic engine rather than the AI layer.",
+      "yaml": "id: HLD_PROPOSED_001\nname: Cloud Audit Logging must record data writes\nprinciple: logging-and-monitoring\nseverity: MEDIUM\nrationale: |\n  An IAM audit config that enables only ADMIN_READ records configuration\n  changes but no data-plane mutations. Without a DATA_WRITE audit_log_config\n  block there is no record of who created, modified or deleted objects in\n  GCS, BigQuery, Datastore or Spanner, so data destruction and tampering\n  leave no trace. DATA_WRITE is far lower volume than DATA_READ, so enabling\n  it does not carry the log-ingestion cost that usually motivates trimming\n  data access logs.\nremediation: |\n  Add a DATA_WRITE audit_log_config block:\n\n    resource \"google_folder_iam_audit_config\" \"all\" {\n      folder  = google_folder.main.name\n      service = \"allServices\"\n      audit_log_config { log_type = \"ADMIN_READ\" }\n      audit_log_config { log_type = \"DATA_WRITE\" }\n    }\nresources:\n  google_project_iam_audit_config:\n    path: audit_log_config\n    any:\n      path: log_type\n      equals: DATA_WRITE\n  google_folder_iam_audit_config:\n    path: audit_log_config\n    any:\n      path: log_type\n      equals: DATA_WRITE\n  google_organization_iam_audit_config:\n    path: audit_log_config\n    any:\n      path: log_type\n      equals: DATA_WRITE\n"
+    }
+  ],
+  "suggested_suppressions": []
+}
