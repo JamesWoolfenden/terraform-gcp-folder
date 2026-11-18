@@ -5,6 +5,6 @@ variable "parent" {
 
   validation {
     condition     = can(regex("^(organizations|folders)/[0-9]+$", var.parent))
-    error_message = "var.parent must be organizations/<id> or folders/<id>"
+    error_message = "var.parent must be organizations/ORG_ID or folders/FOLDER_ID"
   }
 }

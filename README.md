@@ -92,7 +92,7 @@ No modules.
 | <a name="input_deletion_protection"></a> [deletion\_protection](#input\_deletion\_protection) | Whether the folder is protected from deletion | `bool` | `true` | no |
 | <a name="input_display_name"></a> [display\_name](#input\_display\_name) | Display name of the folder | `string` | n/a | yes |
 | <a name="input_folder_viewers"></a> [folder\_viewers](#input\_folder\_viewers) | Principals granted roles/resourcemanager.folderViewer on the folder | `list(string)` | n/a | yes |
-| <a name="input_parent"></a> [parent](#input\_parent) | Parent of the folder, either organizations/<id> or folders/<id> | `string` | n/a | yes |
+| <a name="input_parent"></a> [parent](#input\_parent) | Parent of the folder, either organizations/ORG\_ID or folders/FOLDER\_ID | `string` | n/a | yes |
 | <a name="input_require_shielded_vm"></a> [require\_shielded\_vm](#input\_require\_shielded\_vm) | Whether to enforce the compute.requireShieldedVm organization policy on the folder | `bool` | `true` | no |
 | <a name="input_security_principal"></a> [security\_principal](#input\_security\_principal) | Group or service account granted roles/iam.securityReviewer on the folder | `string` | n/a | yes |
 
@@ -102,7 +102,7 @@ No modules.
 | ---- | ----------- |
 | <a name="output_folder_id"></a> [folder\_id](#output\_folder\_id) | Numeric ID of the folder |
 | <a name="output_id"></a> [id](#output\_id) | ID of the folder |
-| <a name="output_name"></a> [name](#output\_name) | Resource name of the folder, folders/<id> |
+| <a name="output_name"></a> [name](#output\_name) | Resource name of the folder, folders/FOLDER\_ID |
 <!-- END OF PRE-COMMIT-TERRAFORM DOCS HOOK -->
 
 ## Help

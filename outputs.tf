@@ -5,7 +5,7 @@ output "id" {
 
 output "name" {
   value       = google_folder.main.name
-  description = "Resource name of the folder, folders/<id>"
+  description = "Resource name of the folder, folders/FOLDER_ID"
 }
 
 output "folder_id" {
